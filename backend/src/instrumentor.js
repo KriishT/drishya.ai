@@ -5,7 +5,7 @@ const t = require("@babel/types");
 
 /**
  * Instruments JavaScript code to track execution steps
- * FIXED: Now tracks array element assignments (answer[0] = 1) and method calls (stack.push(i))
+ * FIXED: Now tracks loop variable updates (i++, j++, etc.) properly
  * @param {string} code - The user's LeetCode solution
  * @param {string} dataStructure - The detected data structure type
  * @returns {string} - Instrumented code
@@ -185,6 +185,36 @@ function instrumentCode(code, dataStructure = "array") {
       }
     },
 
+    // ✅ NEW: Instrument update expressions (i++, ++i, i--, --i)
+    UpdateExpression(path) {
+      if (visitedNodes.has(path.node)) return;
+
+      const argument = path.node.argument;
+
+      // Only track updates to declared variables
+      if (!t.isIdentifier(argument)) return;
+
+      const varName = argument.name;
+
+      if (!declaredVars.has(varName) && !functionParams.has(varName)) {
+        return;
+      }
+
+      visitedNodes.add(path.node);
+
+      // Replace i++ with (i++, __setVar('i', i), i)
+      // The extra 'i' at the end ensures the expression returns the correct value
+      const original = path.node;
+
+      path.replaceWith(
+        t.sequenceExpression([
+          original,
+          createVarTracker(varName, t.identifier(varName)),
+          t.identifier(varName),
+        ])
+      );
+    },
+
     // Instrument expression statements to catch method calls
     ExpressionStatement(path) {
       if (visitedNodes.has(path.node)) return;
@@ -270,8 +300,8 @@ function instrumentCode(code, dataStructure = "array") {
         });
       }
 
-      // Create traces for loop body
-      const bodyTraces = [
+      // Create traces for loop body START
+      const bodyStartTraces = [
         // Loop iteration trace
         t.expressionStatement(
           createTraceCall({
@@ -283,9 +313,9 @@ function instrumentCode(code, dataStructure = "array") {
         ),
       ];
 
-      // Add __setVar for each loop variable to track its value
+      // Add __setVar for each loop variable to track its value AT START of iteration
       loopVars.forEach((varName) => {
-        bodyTraces.push(
+        bodyStartTraces.push(
           t.expressionStatement(
             createVarTracker(varName, t.identifier(varName))
           )
@@ -295,9 +325,9 @@ function instrumentCode(code, dataStructure = "array") {
       const body = path.node.body;
 
       if (t.isBlockStatement(body)) {
-        body.body.unshift(...bodyTraces);
+        body.body.unshift(...bodyStartTraces);
       } else {
-        path.node.body = t.blockStatement([...bodyTraces, body]);
+        path.node.body = t.blockStatement([...bodyStartTraces, body]);
       }
 
       // Insert loop start trace before the loop

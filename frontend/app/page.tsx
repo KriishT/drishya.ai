@@ -23,7 +23,7 @@ export default function Home() {
           </div>
 
           <h1 className="text-white font-['Tahoma'] text-sm font-bold tracking-wide drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
-            LeetCode Visualizer
+            Drishya.ai
           </h1>
         </div>
 

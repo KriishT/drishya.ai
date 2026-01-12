@@ -1,15 +1,98 @@
 /**
- * Instruments Python code to track execution steps
- * FIXED: Now tracks array element assignments like answer[0] = 1
+ * Unwraps LeetCode's Solution class wrapper
+ */
+function unwrapSolutionClass(code) {
+  const lines = code.split("\n");
+  const classLineIndex = lines.findIndex((line) =>
+    line.trim().match(/^class\s+\w+/)
+  );
+
+  if (classLineIndex === -1) {
+    return code;
+  }
+
+  let methodStartIndex = -1;
+  let methodIndent = "";
+
+  for (let i = classLineIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (
+      !trimmed ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith('"""') ||
+      trimmed.startsWith("'''")
+    ) {
+      continue;
+    }
+
+    if (trimmed.match(/^def\s+\w+/)) {
+      methodStartIndex = i;
+      methodIndent = line.match(/^(\s*)/)[1];
+      break;
+    }
+  }
+
+  if (methodStartIndex === -1) {
+    return code;
+  }
+
+  const methodLines = [];
+  let insideMethod = false;
+
+  for (let i = methodStartIndex; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (i === methodStartIndex) {
+      const methodLine = line.trim();
+      const match = methodLine.match(/def\s+(\w+)\s*\(([^)]*)\)/);
+
+      if (match) {
+        const methodName = match[1];
+        const params = match[2];
+        const paramList = params.split(",").map((p) => p.trim());
+        const filteredParams = paramList.filter(
+          (p) => p !== "self" && p !== ""
+        );
+
+        methodLines.push(`def ${methodName}(${filteredParams.join(", ")}):`);
+        insideMethod = true;
+      }
+    } else if (insideMethod) {
+      if (
+        line.trim() &&
+        !line.startsWith(methodIndent + " ") &&
+        !line.startsWith(methodIndent + "\t")
+      ) {
+        if (line.trim().match(/^(def|class)\s+/)) {
+          break;
+        }
+      }
+
+      if (line.startsWith(methodIndent)) {
+        methodLines.push(line.substring(methodIndent.length));
+      } else if (line.trim() === "") {
+        methodLines.push("");
+      }
+    }
+  }
+
+  return methodLines.join("\n");
+}
+
+/**
+ * Instruments Python code - FIXED: elif chains and chained assignments
  */
 function instrumentPythonCode(code, dataStructure = "array") {
+  code = unwrapSolutionClass(code);
+
   let traceId = 0;
   const lines = code.split("\n");
   const instrumented = [];
   const functionParams = new Set();
   const declaredVars = new Set();
 
-  // Detect indentation style
   const detectIndentStyle = () => {
     for (const line of lines) {
       const match = line.match(/^(\s+)/);
@@ -19,7 +102,7 @@ function instrumentPythonCode(code, dataStructure = "array") {
         return " ".repeat(spaces.length);
       }
     }
-    return "    "; // Default 4 spaces
+    return "    ";
   };
 
   const indentUnit = detectIndentStyle();
@@ -48,52 +131,36 @@ function instrumentPythonCode(code, dataStructure = "array") {
     return line.match(/^\s*/)[0];
   };
 
-  const instrumentArrayAccess = (line, currentParams) => {
+  const extractArrayAccesses = (line, currentParams) => {
+    const accesses = [];
     const pattern = /(\w+)\[([^\]]+)\]/g;
-    let result = line;
-    const matches = [];
     let match;
 
     while ((match = pattern.exec(line)) !== null) {
-      matches.push({
-        full: match[0],
-        arrayName: match[1],
-        index: match[2],
-        start: match.index,
-      });
-    }
+      const arrayName = match[1];
+      const index = match[2];
 
-    for (let i = matches.length - 1; i >= 0; i--) {
-      const m = matches[i];
-      if (currentParams.has(m.arrayName)) {
-        const replacement = `_trace_access('${m.arrayName}', ${m.index}, ${m.full})`;
-        result =
-          result.slice(0, m.start) +
-          replacement +
-          result.slice(m.start + m.full.length);
+      if (currentParams.has(arrayName)) {
+        accesses.push({ arrayName, index, fullAccess: match[0] });
       }
     }
 
-    return result;
+    return accesses;
   };
 
-  // Extract variable name from assignment (handles x = ..., x[i] = ..., x.y = ...)
   const getAssignedVarName = (line) => {
     const trimmed = line.trim();
 
-    // Match: varName[...] = ...
     const arrayMatch = trimmed.match(/^(\w+)\[[^\]]+\]\s*=/);
     if (arrayMatch) {
       return arrayMatch[1];
     }
 
-    // Match: varName.attr = ...
     const attrMatch = trimmed.match(/^(\w+)\.\w+\s*=/);
     if (attrMatch) {
       return attrMatch[1];
     }
 
-    // Match: varName = ...
     const simpleMatch = trimmed.match(/^(\w+)\s*=/);
     if (
       simpleMatch &&
@@ -106,6 +173,20 @@ function instrumentPythonCode(code, dataStructure = "array") {
     }
 
     return null;
+  };
+
+  // ✅ NEW: Extract ALL variables from chained assignments (i = j = k = 0)
+  const getChainedVars = (line) => {
+    const trimmed = line.trim();
+    const chainMatch = trimmed.match(/^([\w\s=]+)=\s*(.+)$/);
+    if (!chainMatch) return [];
+
+    const leftSide = chainMatch[1];
+    const vars = leftSide
+      .split("=")
+      .map((v) => v.trim())
+      .filter((v) => v && /^\w+$/.test(v));
+    return vars.length > 1 ? vars : [];
   };
 
   // First pass: identify function parameters
@@ -138,7 +219,6 @@ function instrumentPythonCode(code, dataStructure = "array") {
     const trimmed = line.trim();
     const indent = getIndent(line);
 
-    // Skip empty lines and comments
     if (!trimmed || trimmed.startsWith("#")) {
       instrumented.push(line);
       continue;
@@ -150,7 +230,6 @@ function instrumentPythonCode(code, dataStructure = "array") {
       if (funcMatch) {
         const funcName = funcMatch[1];
 
-        // Skip dunder methods
         if (funcName.startsWith("__") && funcName.endsWith("__")) {
           instrumented.push(line);
           continue;
@@ -171,11 +250,20 @@ function instrumentPythonCode(code, dataStructure = "array") {
       }
     }
 
-    // For loop
+    // For loop with tuple unpacking
     if (trimmed.startsWith("for ")) {
       const loopId = traceId++;
-      const varMatch = trimmed.match(/for\s+(\w+)\s+in/);
-      const loopVar = varMatch ? varMatch[1] : null;
+
+      const loopVars = [];
+      const varMatch = trimmed.match(/for\s+(.+?)\s+in\s+/);
+      if (varMatch) {
+        const varsPart = varMatch[1].trim();
+        const vars = varsPart
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => v);
+        loopVars.push(...vars);
+      }
 
       const loopStart = createTraceCall({
         type: "loop_start",
@@ -196,9 +284,10 @@ function instrumentPythonCode(code, dataStructure = "array") {
 
       instrumented.push(`${indent}${indentUnit}${iterTrace}`);
 
-      if (loopVar) {
+      loopVars.forEach((loopVar) => {
         instrumented.push(`${indent}${indentUnit}${createVarTracker(loopVar)}`);
-      }
+      });
+
       continue;
     }
 
@@ -218,17 +307,32 @@ function instrumentPythonCode(code, dataStructure = "array") {
       continue;
     }
 
-    // If/elif statement
+    // ✅ FIXED: If/elif statement - don't break elif chains
     if (trimmed.startsWith("if ") || trimmed.startsWith("elif ")) {
-      const condTrace = createTraceCall({
-        type: "condition_check",
-        id: traceId++,
-        line: i + 1,
-      });
+      const isElif = trimmed.startsWith("elif ");
 
-      instrumented.push(`${indent}${condTrace}`);
-      const instrumentedLine = instrumentArrayAccess(line, functionParams);
-      instrumented.push(instrumentedLine);
+      // Only add condition trace for 'if', not 'elif'
+      if (!isElif) {
+        const condTrace = createTraceCall({
+          type: "condition_check",
+          id: traceId++,
+          line: i + 1,
+        });
+        instrumented.push(`${indent}${condTrace}`);
+
+        // ✅ Array access tracking ONLY for 'if', not 'elif'
+        const accesses = extractArrayAccesses(line, functionParams);
+        if (accesses.length > 0) {
+          accesses.forEach((acc) => {
+            instrumented.push(
+              `${indent}try: _trace_array_access('${acc.arrayName}', ${acc.index}, ${acc.fullAccess})`
+            );
+            instrumented.push(`${indent}except: pass`);
+          });
+        }
+      }
+
+      instrumented.push(line);
       continue;
     }
 
@@ -241,51 +345,92 @@ function instrumentPythonCode(code, dataStructure = "array") {
       });
 
       instrumented.push(`${indent}${returnTrace}`);
-      const instrumentedLine = instrumentArrayAccess(line, functionParams);
-      instrumented.push(instrumentedLine);
+      instrumented.push(line);
       continue;
     }
 
-    // Variable assignment (handles x=..., x[i]=..., x.y=...)
+    // ✅ FIXED: Variable assignment with chained assignment support
     const assignedVar = getAssignedVarName(line);
     if (assignedVar) {
-      // Track if this is a new variable declaration
-      const isNewVar =
-        !declaredVars.has(assignedVar) && !functionParams.has(assignedVar);
-      if (isNewVar) {
-        declaredVars.add(assignedVar);
+      const chainedVars = getChainedVars(line);
+
+      // Handle chained assignments (i = j = k = 0)
+      if (chainedVars.length > 0) {
+        // Mark all as new vars if needed
+        const allNewVars = chainedVars.filter(
+          (v) => !declaredVars.has(v) && !functionParams.has(v)
+        );
+        allNewVars.forEach((v) => declaredVars.add(v));
+
+        // Add trace for first var only
+        const varTrace = createTraceCall({
+          type: "var_declaration",
+          name: chainedVars[0],
+          id: traceId++,
+          line: i + 1,
+        });
+        instrumented.push(`${indent}${varTrace}`);
+
+        // Array access tracking
+        const accesses = extractArrayAccesses(line, functionParams);
+        if (accesses.length > 0) {
+          accesses.forEach((acc) => {
+            instrumented.push(
+              `${indent}try: _trace_array_access('${acc.arrayName}', ${acc.index}, ${acc.fullAccess})`
+            );
+            instrumented.push(`${indent}except: pass`);
+          });
+        }
+
+        instrumented.push(line);
+
+        // Track ALL variables
+        chainedVars.forEach((v) => {
+          instrumented.push(`${indent}${createVarTracker(v)}`);
+        });
+      } else {
+        // Regular single assignment
+        const isNewVar =
+          !declaredVars.has(assignedVar) && !functionParams.has(assignedVar);
+        if (isNewVar) {
+          declaredVars.add(assignedVar);
+        }
+
+        const varTrace = createTraceCall({
+          type: isNewVar ? "var_declaration" : "assignment",
+          name: assignedVar,
+          id: traceId++,
+          line: i + 1,
+        });
+
+        instrumented.push(`${indent}${varTrace}`);
+
+        const accesses = extractArrayAccesses(line, functionParams);
+        if (accesses.length > 0) {
+          accesses.forEach((acc) => {
+            instrumented.push(
+              `${indent}try: _trace_array_access('${acc.arrayName}', ${acc.index}, ${acc.fullAccess})`
+            );
+            instrumented.push(`${indent}except: pass`);
+          });
+        }
+
+        instrumented.push(line);
+        instrumented.push(`${indent}${createVarTracker(assignedVar)}`);
       }
 
-      // Add trace for assignment
-      const varTrace = createTraceCall({
-        type: isNewVar ? "var_declaration" : "assignment",
-        name: assignedVar,
-        id: traceId++,
-        line: i + 1,
-      });
-
-      instrumented.push(`${indent}${varTrace}`);
-
-      // Add the actual assignment line (with array access instrumentation if needed)
-      const instrumentedLine = instrumentArrayAccess(line, functionParams);
-      instrumented.push(instrumentedLine);
-
-      // CRITICAL: Add _set_var AFTER the assignment to capture the updated value
-      instrumented.push(`${indent}${createVarTracker(assignedVar)}`);
       continue;
     }
 
-    // Method calls that modify variables (list.append, etc.)
+    // Method calls that modify variables
     const methodCallMatch = trimmed.match(
       /^(\w+)\.(append|extend|insert|remove|pop|clear|sort|reverse)\(/
     );
     if (methodCallMatch) {
       const varName = methodCallMatch[1];
 
-      // Add the method call
       instrumented.push(line);
 
-      // Track the variable change after the method call
       if (declaredVars.has(varName) || functionParams.has(varName)) {
         const trace = createTraceCall({
           type: "assignment",
@@ -299,12 +444,28 @@ function instrumentPythonCode(code, dataStructure = "array") {
       continue;
     }
 
-    // Default: check for array access in any line
-    const instrumentedLine = instrumentArrayAccess(line, functionParams);
-    if (instrumentedLine !== line) {
-      instrumented.push(instrumentedLine);
-    } else {
-      instrumented.push(line);
+    // Default: track array accesses (but skip for if/elif lines)
+    if (!trimmed.startsWith("if ") && !trimmed.startsWith("elif ")) {
+      const accesses = extractArrayAccesses(line, functionParams);
+      if (accesses.length > 0) {
+        accesses.forEach((acc) => {
+          instrumented.push(
+            `${indent}try: _trace_array_access('${acc.arrayName}', ${acc.index}, ${acc.fullAccess})`
+          );
+          instrumented.push(`${indent}except: pass`);
+        });
+      }
+    }
+
+    instrumented.push(line);
+
+    // ✅ NEW: Track compound assignments (i += 1, j -= 1, etc.)
+    const compoundMatch = trimmed.match(/^(\w+)\s*([+\-*/%]=)/);
+    if (compoundMatch) {
+      const varName = compoundMatch[1];
+      if (declaredVars.has(varName) || functionParams.has(varName)) {
+        instrumented.push(`${indent}${createVarTracker(varName)}`);
+      }
     }
   }
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { DataStructureType } from "@/types";
+import { DataStructureType, screenStyle } from "@/types";
 import { ArrayVisualizationStep, TreeVisualizationStep } from "./api";
 
 interface VisualizerStore {
@@ -9,6 +9,7 @@ interface VisualizerStore {
   language: string;
   inputType: DataStructureType | null;
   outputType: DataStructureType | null;
+  screenStyle: screenStyle;
 
   // Visualization state
   steps: ArrayVisualizationStep[] | TreeVisualizationStep[];
@@ -40,6 +41,7 @@ interface VisualizerStore {
   setDataStructureType: (type: string) => void;
   setResult: (result: any) => void;
   setAiAnalysis: (analysis: any) => void;
+  setSceenStyle: (screenStyle: screenStyle) => void;
 
   setIsLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -56,6 +58,7 @@ export const useVisualizerStore = create<VisualizerStore>((set, get) => ({
   language: "javascript",
   inputType: null,
   outputType: null,
+  screenStyle: "regular",
 
   steps: [],
   currentStepIndex: 0,
@@ -99,6 +102,7 @@ export const useVisualizerStore = create<VisualizerStore>((set, get) => ({
   setDataStructureType: (dataStructureType) => set({ dataStructureType }),
   setResult: (result) => set({ result }),
   setAiAnalysis: (aiAnalysis) => set({ aiAnalysis }),
+  setSceenStyle: (screenStyle) => set({ screenStyle }),
 
   setIsLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),

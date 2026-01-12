@@ -1,8 +1,6 @@
 /**
  * Process trace events for TREE data structures
- * Tracks visited nodes, current path, and traversal order
- * FIXED: Pre-computes DFS sequence INCLUDING null nodes to match actual function calls
- * @returns {Array} - Array of visualization steps (not object)
+ * FIXED: Captures original tree from FIRST trace event before mutations
  */
 
 function processTrace(trace, testCase) {
@@ -12,17 +10,52 @@ function processTrace(trace, testCase) {
   // Tree traversal state
   const visitedNodes = new Set();
   const traversalOrder = [];
-  const callStack = []; // Track recursive calls with paths
+  const callStack = [];
 
-  // Get the tree from first trace event
-  let tree = null;
-  if (trace.length > 0 && trace[0].args && trace[0].args[0]) {
-    tree = trace[0].args[0];
+  /**
+   * Deep clone a tree node
+   */
+  const deepCloneTree = (node) => {
+    if (!node) return null;
+
+    // ✅ Handle circular references and create true deep copy
+    const cloned = {
+      val: node.val,
+    };
+
+    // Only add left/right if they exist to match original structure
+    if ("left" in node) {
+      cloned.left = deepCloneTree(node.left);
+    }
+    if ("right" in node) {
+      cloned.right = deepCloneTree(node.right);
+    }
+
+    return cloned;
+  };
+
+  /**
+   * Check if a value is a tree node
+   */
+  const isTreeNode = (value) => {
+    return value && typeof value === "object" && "val" in value;
+  };
+
+  // ✅ CRITICAL FIX: Get original tree from FIRST event (before any execution)
+  let originalTree = null;
+  let currentTree = null;
+
+  if (trace.length > 0) {
+    // First trace event has the INPUT tree
+    if (trace[0].args && trace[0].args[0]) {
+      const inputTree = trace[0].args[0];
+      originalTree = deepCloneTree(inputTree);
+      currentTree = inputTree; // Keep reference for DFS sequence
+    }
   }
 
-  // ✅ FIX: Pre-compute DFS sequence INCLUDING null nodes
+  // Build DFS sequence from ORIGINAL tree (not mutated one)
   const buildDFSSequence = (node, path = [], sequence = []) => {
-    // ✅ CRITICAL: Track null nodes too - they trigger function calls!
     if (!node) {
       sequence.push({
         node: null,
@@ -46,20 +79,15 @@ function processTrace(trace, testCase) {
     return sequence;
   };
 
-  const dfsSequence = buildDFSSequence(tree);
+  const dfsSequence = buildDFSSequence(originalTree);
   let functionCallIndex = -1;
-
-  // Helper: Get node value
-  const getNodeValue = (node) => {
-    return node ? node.val : null;
-  };
 
   // Helper: Build path nodes (values along the path)
   const buildPathNodes = (path) => {
-    if (!tree || !path || path.length === 0) return [];
+    if (!originalTree || !path || path.length === 0) return [];
 
-    const pathNodes = [tree.val];
-    let current = tree;
+    const pathNodes = [originalTree.val];
+    let current = originalTree;
 
     for (const direction of path) {
       if (!current) break;
@@ -78,7 +106,7 @@ function processTrace(trace, testCase) {
     type: "init",
     description: "Tree traversal started",
     variables: {},
-    tree: tree,
+    tree: deepCloneTree(originalTree), // ✅ Use cloned original
     highlightedNodes: [],
     visitedNodes: [],
     currentPath: [],
@@ -97,7 +125,6 @@ function processTrace(trace, testCase) {
 
     // Get current node from call stack (last non-null node)
     if (callStack.length > 0) {
-      // Find the last non-null node in call stack
       for (let j = callStack.length - 1; j >= 0; j--) {
         if (!callStack[j].isNull) {
           currentNodeInfo = callStack[j];
@@ -121,24 +148,22 @@ function processTrace(trace, testCase) {
           event.name === "minDepth" ||
           event.name === "hasPathSum" ||
           event.name === "levelOrder" ||
-          event.name === "sortedArrayToBST"
+          event.name === "sortedArrayToBST" ||
+          event.name === "mergeTrees" ||
+          event.name === "buildTree" ||
+          event.name === "lowestCommonAncestor"
         ) {
-          // ✅ FIX: Use pre-computed DFS sequence (includes nulls)
           functionCallIndex++;
 
           if (functionCallIndex < dfsSequence.length) {
             const nodeInfo = dfsSequence[functionCallIndex];
-
-            // Add to call stack (including nulls for accurate tracking)
             callStack.push(nodeInfo);
 
             if (!nodeInfo.isNull) {
-              // Non-null node: track it
               visitedNodes.add(nodeInfo.val);
               traversalOrder.push(nodeInfo.val);
               highlightedNodes = [nodeInfo.val];
 
-              // Build description
               if (functionCallIndex === 0) {
                 description = `Entering function: ${event.name} (root node ${nodeInfo.val})`;
               } else {
@@ -149,10 +174,8 @@ function processTrace(trace, testCase) {
                 description = `Visiting ${pathDesc} child (node ${nodeInfo.val})`;
               }
 
-              // Update current path
               currentPathNodes = buildPathNodes(nodeInfo.path);
             } else {
-              // Null node: don't track in visited, but show in description
               highlightedNodes = currentNodeInfo ? [currentNodeInfo.val] : [];
 
               const pathDesc =
@@ -161,7 +184,6 @@ function processTrace(trace, testCase) {
                   : "child";
               description = `Checking ${pathDesc} child (null)`;
 
-              // Keep current path as parent's path
               if (currentNodeInfo) {
                 currentPathNodes = buildPathNodes(currentNodeInfo.path);
               }
@@ -180,15 +202,11 @@ function processTrace(trace, testCase) {
         break;
 
       case "return":
-        // Determine what we're returning from
-        let returningFrom = "recursion";
         if (callStack.length > 0) {
           const lastCall = callStack[callStack.length - 1];
           if (lastCall.isNull) {
-            returningFrom = "null check";
-            description = "Returning 0 (null node)";
+            description = "Returning from null node";
           } else {
-            returningFrom = `node ${lastCall.val}`;
             description = `Returning from node ${lastCall.val}`;
             highlightedNodes = [lastCall.val];
           }
@@ -196,14 +214,11 @@ function processTrace(trace, testCase) {
           description = "Returning from recursion";
         }
 
-        // Pop from call stack on return
         if (callStack.length > 0) {
           callStack.pop();
         }
 
-        // Update current path after popping
         if (callStack.length > 0) {
-          // Find last non-null node for path
           for (let j = callStack.length - 1; j >= 0; j--) {
             if (!callStack[j].isNull) {
               currentPathNodes = buildPathNodes(callStack[j].path);
@@ -241,7 +256,7 @@ function processTrace(trace, testCase) {
       type: event.type,
       description: description,
       variables: event.variables || {},
-      tree: tree,
+      tree: deepCloneTree(originalTree), // ✅ Always use original unmutated tree
       highlightedNodes: highlightedNodes,
       visitedNodes: Array.from(visitedNodes),
       currentPath: currentPathNodes,
@@ -250,21 +265,46 @@ function processTrace(trace, testCase) {
     });
   }
 
-  // Add final step
+  // ✅ CRITICAL: Get result tree from FINAL trace event (the mutated one)
   const lastEvent = trace[trace.length - 1];
   const result = lastEvent.result !== undefined ? lastEvent.result : null;
+
+  // Check if result is a tree
+  const hasTreeResult = isTreeNode(result);
+
+  // For functions that mutate in place (like invertTree),
+  // the result IS the mutated tree
+  let resultTree = null;
+  if (hasTreeResult) {
+    resultTree = deepCloneTree(result);
+  } else if (result === null || result === undefined) {
+    // If result is null but we know it's invertTree, use the mutated currentTree
+    if (trace.some((e) => e.name === "invertTree")) {
+      resultTree = deepCloneTree(currentTree);
+    }
+  }
+
+  let finalDescription = "Traversal complete.";
+  if (resultTree) {
+    finalDescription =
+      "Tree transformation complete. Compare input and output below.";
+  } else if (result !== null && result !== undefined) {
+    finalDescription = `Traversal complete. Result: ${result}`;
+  }
 
   steps.push({
     stepNumber: stepCounter++,
     type: "final",
-    description: `Traversal complete. Result: ${result}`,
+    description: finalDescription,
     variables: lastEvent.variables || {},
-    tree: tree,
+    tree: deepCloneTree(originalTree), // ✅ Original unmutated tree
+    resultTree: resultTree, // ✅ Final mutated tree
     highlightedNodes: [],
     visitedNodes: Array.from(visitedNodes),
     currentPath: [],
     traversalOrder: [...traversalOrder],
     result: result,
+    hasTreeResult: !!resultTree,
     code: lastEvent,
   });
 

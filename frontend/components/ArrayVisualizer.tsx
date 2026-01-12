@@ -32,7 +32,7 @@ export default function ArrayVisualizer() {
     }
   }, [currentStepIndex, currentStep]);
 
-  if (!currentStep || !currentStep.array) {
+  if (!currentStep) {
     return (
       <div className="flex items-center justify-center h-full text-gray-600">
         <p className="font-['Tahoma'] text-sm">No data to visualize</p>
@@ -42,52 +42,83 @@ export default function ArrayVisualizer() {
 
   const {
     array,
+    arrays,
+    arrayNames,
     highlightedIndices = [],
+    highlightedArrayIndices = [], // ✅ Per-array highlights
     description,
     accessedValue,
+    accessedArrayIndex,
     result,
   } = currentStep;
 
-  return (
-    <div className="p-8">
-      {/* Step Number - Windows XP Status Bar Style */}
-      <div className="mb-4 flex justify-center">
-        <div
-          className="px-3 py-1 rounded-sm"
-          style={{
-            background: "linear-gradient(to bottom, #FAFAFA 0%, #E0E0E0 100%)",
-            border: "1px solid #808080",
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(0,0,0,0.2)",
-          }}
-        >
-          <span className="text-xs text-black font-['Tahoma'] font-bold">
-            Step {currentStepIndex + 1} / {steps.length}
-          </span>
-        </div>
-      </div>
+  // ✅ Check if we have multiple arrays
+  const hasMultipleArrays = arrays && arrays.length > 1;
+  const displayArrays = hasMultipleArrays ? arrays : [array];
+  const displayNames = arrayNames || ["nums"];
 
-      {/* Description - Windows XP Info Panel */}
-      <div className="mb-6 flex justify-center">
-        <div
-          className="px-4 py-2 rounded-sm max-w-2xl"
-          style={{
-            background: "linear-gradient(to bottom, #FFF8DC 0%, #FFFACD 100%)",
-            border: "1px solid #D4A017",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-          }}
-        >
-          <p className="text-sm text-black font-['Tahoma'] text-center">
-            {description}
-          </p>
-        </div>
-      </div>
+  // ✅ Helper: Get color for each array
+  const getArrayColor = (index: number) => {
+    const colors = [
+      {
+        border: "#0078D7",
+        gradient:
+          "linear-gradient(to bottom, #B4D4F7 0%, #6BB4F7 50%, #3F8CF3 50%, #0078D7 100%)",
+      },
+      {
+        border: "#32CD32",
+        gradient:
+          "linear-gradient(to bottom, #C8F0C8 0%, #90EE90 50%, #5FD35F 50%, #32CD32 100%)",
+      },
+      {
+        border: "#FF6B6B",
+        gradient:
+          "linear-gradient(to bottom, #FFB3B3 0%, #FF8A8A 50%, #FF6B6B 50%, #E85555 100%)",
+      },
+      {
+        border: "#9B59B6",
+        gradient:
+          "linear-gradient(to bottom, #D7BDE2 0%, #C39BD3 50%, #A97ABB 50%, #9B59B6 100%)",
+      },
+    ];
+    return colors[index % colors.length];
+  };
 
-      {/* Array Visualization */}
-      <div className="flex justify-center items-end gap-3 flex-wrap">
-        {array.map((value, index) => {
-          const isHighlighted = highlightedIndices.includes(index);
-          const isAccessed = currentStep?.code?.index === index;
+  // ✅ Render single array with per-array highlighting
+  const renderArray = (arr: any[], arrIndex: number = 0) => {
+    if (!arr) return null;
+
+    const colorScheme = getArrayColor(arrIndex);
+
+    // ✅ Get highlights for THIS specific array
+    const arrayHighlights = highlightedArrayIndices[arrIndex] || [];
+
+    // ✅ Check if this array should be "active" or "inactive"
+    const isActiveArray = arrayHighlights.length > 0;
+    const hasAnyActiveArray = highlightedArrayIndices.some(
+      (arr) => arr && arr.length > 0
+    );
+    const isInactiveArray =
+      hasMultipleArrays && !isActiveArray && hasAnyActiveArray;
+
+    return (
+      <div
+        className="flex justify-center items-end gap-3 flex-wrap"
+        style={{
+          opacity: isInactiveArray ? 0.3 : 1,
+          transition: "opacity 300ms ease-in-out",
+          filter: isInactiveArray ? "grayscale(50%)" : "none",
+        }}
+      >
+        {arr.map((value, index) => {
+          // ✅ Only highlight if THIS array's highlights include this index
+          const isHighlighted = arrayHighlights.includes(index);
+
+          // ✅ Check if being accessed AND it's THIS specific array
+          const isAccessed =
+            currentStep?.type === "array_access" &&
+            currentStep?.code?.index === index &&
+            accessedArrayIndex === arrIndex;
 
           // Windows XP color palette
           let boxGradient =
@@ -98,7 +129,7 @@ export default function ArrayVisualizer() {
           let shadowStyle = "0 2px 4px rgba(0,0,0,0.3)";
 
           if (isAccessed) {
-            // Windows XP Success Green
+            // Windows XP Success Green - BEING ACCESSED RIGHT NOW
             boxGradient =
               "linear-gradient(to bottom, #C8F0C8 0%, #90EE90 50%, #5FD35F 50%, #32CD32 100%)";
             borderColor = "#228B22";
@@ -120,20 +151,17 @@ export default function ArrayVisualizer() {
               </div>
             );
           } else if (isHighlighted) {
-            // Windows XP Blue Selection
-            boxGradient =
-              "linear-gradient(to bottom, #B4D4F7 0%, #6BB4F7 50%, #3F8CF3 50%, #0078D7 100%)";
-            borderColor = "#003C74";
+            // Use array-specific color for highlighting
+            boxGradient = colorScheme.gradient;
+            borderColor = colorScheme.border;
             textColor = "text-white";
-            shadowStyle =
-              "0 0 10px rgba(0,120,215,0.5), 0 2px 4px rgba(0,0,0,0.3)";
+            shadowStyle = `0 0 10px ${colorScheme.border}80, 0 2px 4px rgba(0,0,0,0.3)`;
             indicator = (
               <div
                 className="text-sm font-bold px-2 py-0.5 rounded-sm"
                 style={{
-                  background:
-                    "linear-gradient(to bottom, #6BB4F7 0%, #0078D7 100%)",
-                  border: "1px solid #003C74",
+                  background: colorScheme.gradient,
+                  border: `1px solid ${colorScheme.border}`,
                   color: "white",
                   textShadow: "0 1px 2px rgba(0,0,0,0.3)",
                 }}
@@ -197,6 +225,77 @@ export default function ArrayVisualizer() {
           );
         })}
       </div>
+    );
+  };
+
+  return (
+    <div className="p-8">
+      {/* Step Number - Windows XP Status Bar Style */}
+      <div className="mb-4 flex justify-center">
+        <div
+          className="px-3 py-1 rounded-sm"
+          style={{
+            background: "linear-gradient(to bottom, #FAFAFA 0%, #E0E0E0 100%)",
+            border: "1px solid #808080",
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(0,0,0,0.2)",
+          }}
+        >
+          <span className="text-xs text-black font-['Tahoma'] font-bold">
+            Step {currentStepIndex + 1} / {steps.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Description - Windows XP Info Panel */}
+      <div className="mb-6 flex justify-center">
+        <div
+          className="px-4 py-2 rounded-sm max-w-2xl"
+          style={{
+            background: "linear-gradient(to bottom, #FFF8DC 0%, #FFFACD 100%)",
+            border: "1px solid #D4A017",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+          }}
+        >
+          <p className="text-sm text-black font-['Tahoma'] text-center">
+            {description}
+          </p>
+        </div>
+      </div>
+
+      {/* ✅ Multiple Arrays or Single Array */}
+      {hasMultipleArrays ? (
+        <div className="space-y-8">
+          {displayArrays.map((arr, index) => {
+            const colorScheme = getArrayColor(index);
+            return (
+              <div key={index}>
+                {/* Array Label */}
+                <div className="mb-4 flex justify-center">
+                  <div
+                    className="px-4 py-1.5 rounded-sm"
+                    style={{
+                      background: colorScheme.gradient,
+                      border: `2px solid ${colorScheme.border}`,
+                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    <span className="text-sm font-['Tahoma'] font-bold text-white">
+                      {displayNames[index]} (Array {index + 1})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Array Visualization */}
+                {renderArray(arr, index)}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Single Array Visualization */
+        renderArray(displayArrays[0], 0)
+      )}
 
       {/* Accessed Value Display - Windows XP Success Message */}
       {accessedValue !== undefined && (

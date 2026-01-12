@@ -14,3 +14,5 @@ export interface FunctionSignature {
   name: string;
   parameters: [];
 }
+
+export type screenStyle = "full" | "regular";

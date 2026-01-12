@@ -24,16 +24,71 @@ function executeCode(instrumentedCode, testCaseStr, dataStructure = "array") {
     };
   }
 
+  // ✅ CRITICAL FIX: Deep clone IMMEDIATELY after parsing, before ANY other operations
+  const originalTestCaseArgs = JSON.parse(JSON.stringify(testCaseArgs));
+
+  /**
+   * Simplify value for display - show only direct children values for nodes
+   */
+  const simplifyForDisplay = (value) => {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    // Primitives
+    if (typeof value !== "object") {
+      return value;
+    }
+
+    // Arrays
+    if (Array.isArray(value)) {
+      return value.map((item) => simplifyForDisplay(item));
+    }
+
+    // Tree/List nodes - show only direct children values
+    if (value.val !== undefined) {
+      const result = { val: value.val };
+
+      if ("left" in value) {
+        result.left =
+          value.left && value.left.val !== undefined ? value.left.val : null;
+      }
+
+      if ("right" in value) {
+        result.right =
+          value.right && value.right.val !== undefined ? value.right.val : null;
+      }
+
+      if ("next" in value) {
+        result.next =
+          value.next && value.next.val !== undefined ? value.next.val : null;
+      }
+
+      return result;
+    }
+
+    // Regular objects
+    const result = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = simplifyForDisplay(val);
+    }
+    return result;
+  };
+
   // Create sandbox with tracking functions
   const sandbox = {
     __trace: (metadata) => {
-      // Deep clone variable state to capture current values
+      // Deep clone and simplify variable state
       const currentVars = {};
       for (const [key, value] of Object.entries(variableState)) {
         if (Array.isArray(value)) {
-          currentVars[key] = JSON.parse(JSON.stringify(value));
+          currentVars[key] = simplifyForDisplay(
+            JSON.parse(JSON.stringify(value))
+          );
         } else if (value !== null && typeof value === "object") {
-          currentVars[key] = JSON.parse(JSON.stringify(value));
+          currentVars[key] = simplifyForDisplay(
+            JSON.parse(JSON.stringify(value))
+          );
         } else {
           currentVars[key] = value;
         }
@@ -49,13 +104,17 @@ function executeCode(instrumentedCode, testCaseStr, dataStructure = "array") {
     },
 
     __traceAccess: (objectName, index, id, value) => {
-      // Deep clone variable state
+      // Deep clone and simplify variable state
       const currentVars = {};
       for (const [key, val] of Object.entries(variableState)) {
         if (Array.isArray(val)) {
-          currentVars[key] = JSON.parse(JSON.stringify(val));
+          currentVars[key] = simplifyForDisplay(
+            JSON.parse(JSON.stringify(val))
+          );
         } else if (val !== null && typeof val === "object") {
-          currentVars[key] = JSON.parse(JSON.stringify(val));
+          currentVars[key] = simplifyForDisplay(
+            JSON.parse(JSON.stringify(val))
+          );
         } else {
           currentVars[key] = val;
         }
@@ -141,15 +200,15 @@ function executeCode(instrumentedCode, testCaseStr, dataStructure = "array") {
     // Run the module to get the function
     const userFunction = vm.run(moduleCode, "visualizer.vm.js");
 
-    // Track input
+    // ✅ Track input with the ORIGINAL cloned args (before any execution)
     sandbox.__trace({
       type: "input_params",
-      args: testCaseArgs,
+      args: originalTestCaseArgs,
       dataStructure: dataStructure,
       id: -1,
     });
 
-    // Execute the function with test case
+    // Execute the function with test case (this may mutate testCaseArgs)
     const result = userFunction.apply(sandbox, testCaseArgs);
 
     // Track result

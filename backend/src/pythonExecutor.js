@@ -1,23 +1,17 @@
 /**
- * Python Code Executor - Fixed to handle all data structures without conflicts
+ * Python Code Executor - COMPLETE FIX with array access tracking
  */
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-/**
- * Execute Python code with trace collection
- */
 async function executePythonCode(
   instrumentedCode,
   testCase,
   dataStructure = "array"
 ) {
-  // Parse test case
   const testCaseArgs = parseTestCase(testCase);
-
-  // Extract function name from instrumented code
   const functionName = extractFunctionName(instrumentedCode);
 
   if (!functionName) {
@@ -28,7 +22,6 @@ async function executePythonCode(
     };
   }
 
-  // Build complete Python module
   const pythonModule = buildPythonModule(
     instrumentedCode,
     functionName,
@@ -36,7 +29,6 @@ async function executePythonCode(
     dataStructure
   );
 
-  // Create temporary file
   const tempDir = os.tmpdir();
   const tempFile = path.join(
     tempDir,
@@ -44,13 +36,9 @@ async function executePythonCode(
   );
 
   try {
-    // Write Python code to file
     fs.writeFileSync(tempFile, pythonModule, "utf8");
-
-    // Execute Python file
     const result = await executePythonFile(tempFile);
 
-    // Clean up
     try {
       fs.unlinkSync(tempFile);
     } catch (cleanupError) {
@@ -59,14 +47,11 @@ async function executePythonCode(
 
     return result;
   } catch (error) {
-    // Clean up on error
     try {
       if (fs.existsSync(tempFile)) {
         fs.unlinkSync(tempFile);
       }
-    } catch (cleanupError) {
-      // Ignore cleanup errors
-    }
+    } catch (cleanupError) {}
 
     return {
       trace: [],
@@ -76,16 +61,12 @@ async function executePythonCode(
   }
 }
 
-/**
- * Build complete Python module with trace collection and execution
- */
 function buildPythonModule(
   instrumentedCode,
   functionName,
   testCaseArgs,
   dataStructure
 ) {
-  // Convert test case args to Python literals
   const pythonArgs = testCaseArgs
     .map((arg) => convertToPythonLiteral(arg))
     .join(", ");
@@ -97,108 +78,122 @@ import json
 import sys
 from typing import Optional, List, Any
 
-# ===== TRACE COLLECTION SYSTEM =====
+# ===== TRACE COLLECTION =====
 _trace_list = []
 _variable_state = {}
 
+def _serialize_value(value, max_depth=100, visited=None):
+    """Serialize any value - for variables, show simplified node structure"""
+    if max_depth <= 0:
+        return None
+    
+    if visited is None:
+        visited = set()
+    
+    if value is None:
+        return None
+    
+    if isinstance(value, (int, float, str, bool)):
+        return value
+    
+    if isinstance(value, (list, tuple)):
+        return [_serialize_value(item, max_depth - 1, visited) for item in value]
+    
+    if isinstance(value, dict):
+        return {str(k): _serialize_value(v, max_depth - 1, visited) for k, v in value.items()}
+    
+    # Objects with 'val' attribute
+    if hasattr(value, 'val'):
+        obj_id = id(value)
+        if obj_id in visited:
+            return None
+        visited.add(obj_id)
+        
+        result = {'val': value.val}
+        
+        if hasattr(value, 'left'):
+            result['left'] = value.left.val if (value.left and hasattr(value.left, 'val')) else None
+        
+        if hasattr(value, 'right'):
+            result['right'] = value.right.val if (value.right and hasattr(value.right, 'val')) else None
+        
+        if hasattr(value, 'next'):
+            result['next'] = value.next.val if (value.next and hasattr(value.next, 'val')) else None
+        
+        return result
+    
+    try:
+        return str(value)
+    except:
+        return None
+
+def _serialize_tree_full(node, max_depth=100, visited=None):
+    """Serialize full tree structure for tree visualization"""
+    if node is None or max_depth <= 0:
+        return None
+    
+    if visited is None:
+        visited = set()
+    
+    obj_id = id(node)
+    if obj_id in visited:
+        return None
+    visited.add(obj_id)
+    
+    result = {}
+    
+    if hasattr(node, 'val'):
+        result['val'] = node.val
+    
+    if hasattr(node, 'left'):
+        result['left'] = _serialize_tree_full(node.left, max_depth - 1, visited)
+    
+    if hasattr(node, 'right'):
+        result['right'] = _serialize_tree_full(node.right, max_depth - 1, visited)
+    
+    if hasattr(node, 'next'):
+        result['next'] = _serialize_tree_full(node.next, max_depth - 1, visited)
+    
+    return result
+
 def _trace(metadata):
-    """Collect trace events with deep copy of variables"""
-    import copy
-    metadata['variables'] = copy.deepcopy(_variable_state)
+    """Collect trace events with serialized variables"""
+    serialized_vars = {}
+    for key, value in _variable_state.items():
+        serialized_vars[key] = _serialize_value(value)
+    
+    metadata['variables'] = serialized_vars
     _trace_list.append(metadata)
     return None
 
 def _set_var(name, value):
-    """Track variable changes with deep copy to prevent reference issues"""
-    import copy
-    if isinstance(value, (list, dict)):
-        _variable_state[name] = copy.deepcopy(value)
-    else:
-        _variable_state[name] = value
+    """Track variable changes"""
+    _variable_state[name] = value
     return value
 
-def _trace_access(arr_name, index, value):
-    """Track array access with logging"""
+def _trace_array_access(arr_name, index, value):
+    """Track array access with actual value - matches JavaScript format"""
     _trace({
         'type': 'array_access',
         'array': arr_name,
         'index': index,
-        'value': value
+        'value': value,
+        'code': {'index': index, 'array': arr_name}  # Match JS format
     })
-    return value
-
-# ===== SERIALIZATION HELPERS =====
-def _serialize_node(node, max_depth=100):
-    """Recursively serialize any node-like object"""
-    if node is None or max_depth <= 0:
-        return None
-    
-    result = {}
-    
-    # Get all attributes that don't start with underscore
-    for attr in dir(node):
-        if not attr.startswith('_') and not callable(getattr(node, attr)):
-            try:
-                value = getattr(node, attr)
-                
-                # Handle nested nodes
-                if hasattr(value, '__dict__') or hasattr(value, 'val'):
-                    result[attr] = _serialize_node(value, max_depth - 1)
-                elif isinstance(value, (list, tuple)):
-                    result[attr] = [_serialize_node(item, max_depth - 1) if hasattr(item, '__dict__') else item for item in value]
-                elif isinstance(value, dict):
-                    result[attr] = {k: _serialize_node(v, max_depth - 1) if hasattr(v, '__dict__') else v for k, v in value.items()}
-                else:
-                    result[attr] = value
-            except:
-                pass
-    
-    return result if result else None
-
-def _serialize_result(result, max_depth=100):
-    """Serialize any result to JSON-compatible format"""
-    if result is None:
-        return None
-    
-    # Primitive types
-    if isinstance(result, (int, float, str, bool)):
-        return result
-    
-    # Lists
-    if isinstance(result, (list, tuple)):
-        return [_serialize_result(item, max_depth - 1) for item in result]
-    
-    # Dictionaries
-    if isinstance(result, dict):
-        return {str(k): _serialize_result(v, max_depth - 1) for k, v in result.items()}
-    
-    # Objects with attributes (TreeNode, ListNode, etc.)
-    if hasattr(result, '__dict__') or hasattr(result, 'val'):
-        return _serialize_node(result, max_depth)
-    
-    # Fallback: try to convert to string
-    try:
-        return str(result)
-    except:
-        return None
+    return None
 
 # ===== DATA STRUCTURE CONVERTERS =====
 def _parse_tree_input(arr):
-    """
-    Convert array to tree structure using user's TreeNode class if available,
-    otherwise create a simple dict-based structure
-    """
+    """Convert array to tree structure"""
     if not arr or len(arr) == 0 or arr[0] is None:
         return None
     
-    # Try to find user's TreeNode class in globals
     TreeNodeClass = None
     for name, obj in list(globals().items()):
         if name == 'TreeNode' and callable(obj):
             TreeNodeClass = obj
             break
     
-    # If no TreeNode class found, create nodes as dicts
     if TreeNodeClass is None:
         class SimpleNode:
             def __init__(self, val):
@@ -207,7 +202,6 @@ def _parse_tree_input(arr):
                 self.right = None
         TreeNodeClass = SimpleNode
     
-    # Build tree
     try:
         root = TreeNodeClass(arr[0])
         queue = [root]
@@ -216,14 +210,12 @@ def _parse_tree_input(arr):
         while queue and i < len(arr):
             node = queue.pop(0)
             
-            # Left child
             if i < len(arr):
                 if arr[i] is not None:
                     node.left = TreeNodeClass(arr[i])
                     queue.append(node.left)
                 i += 1
             
-            # Right child
             if i < len(arr):
                 if arr[i] is not None:
                     node.right = TreeNodeClass(arr[i])
@@ -236,20 +228,16 @@ def _parse_tree_input(arr):
         return None
 
 def _parse_linkedlist_input(arr):
-    """
-    Convert array to linked list using user's ListNode class if available
-    """
+    """Convert array to linked list"""
     if not arr or len(arr) == 0:
         return None
     
-    # Try to find user's ListNode class
     ListNodeClass = None
     for name, obj in list(globals().items()):
         if name == 'ListNode' and callable(obj):
             ListNodeClass = obj
             break
     
-    # If no ListNode class found, create simple nodes
     if ListNodeClass is None:
         class SimpleNode:
             def __init__(self, val):
@@ -270,37 +258,14 @@ def _parse_linkedlist_input(arr):
         print(f"Error creating linked list: {e}", file=sys.stderr)
         return None
 
-def _parse_graph_input(data):
-    """Parse graph input (adjacency list or edge list)"""
-    # Graph inputs are typically already in the right format
-    return data
-
-def _convert_input_by_type(value, param_type):
-    """Convert input value based on parameter type"""
-    if param_type == 'tree':
-        if isinstance(value, list):
-            return _parse_tree_input(value)
-        return value
-    elif param_type == 'linkedlist':
-        if isinstance(value, list):
-            return _parse_linkedlist_input(value)
-        return value
-    elif param_type == 'graph':
-        return _parse_graph_input(value)
-    else:
-        # Default: return as-is
-        return value
-
-# ===== USER'S INSTRUMENTED CODE =====
+# ===== USER CODE =====
 ${instrumentedCode}
 
-# ===== EXECUTION & OUTPUT =====
+# ===== EXECUTION =====
 if __name__ == "__main__":
     try:
-        # Parse input arguments
         raw_args = [${pythonArgs}]
         
-        # Convert arguments based on data structure type
         if '${dataStructure}' == 'tree' and len(raw_args) > 0:
             converted_args = [_parse_tree_input(raw_args[0])] + raw_args[1:]
         elif '${dataStructure}' == 'linkedlist' and len(raw_args) > 0:
@@ -308,34 +273,29 @@ if __name__ == "__main__":
         else:
             converted_args = raw_args
         
-        # Add input trace
         _trace({
             'type': 'input_params',
-            'args': [_serialize_result(arg) for arg in converted_args],
+            'args': [_serialize_tree_full(arg) if hasattr(arg, 'val') else arg for arg in converted_args],
             'dataStructure': '${dataStructure}',
             'id': -1
         })
         
-        # Execute function
         result = ${functionName}(*converted_args)
         
-        # Add result trace
         _trace({
             'type': 'final_result',
-            'result': _serialize_result(result),
+            'result': _serialize_tree_full(result) if hasattr(result, 'val') else result,
             'id': 999999
         })
         
-        # Output trace as JSON
         output = {
             'trace': _trace_list,
-            'result': _serialize_result(result),
+            'result': _serialize_tree_full(result) if hasattr(result, 'val') else result,
             'success': True
         }
         print(json.dumps(output))
         
     except Exception as e:
-        # Output error with partial trace
         import traceback
         output = {
             'trace': _trace_list,
@@ -349,14 +309,11 @@ if __name__ == "__main__":
 `;
 }
 
-/**
- * Execute Python file and capture output
- */
 function executePythonFile(filepath) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const python = spawn("python", [filepath], {
       timeout: 5000,
-      maxBuffer: 10 * 1024 * 1024, // 10MB
+      maxBuffer: 10 * 1024 * 1024,
     });
 
     let stdout = "";
@@ -408,7 +365,6 @@ function executePythonFile(filepath) {
       }
     });
 
-    // Handle timeout
     setTimeout(() => {
       python.kill("SIGTERM");
       setTimeout(() => {
@@ -418,17 +374,12 @@ function executePythonFile(filepath) {
   });
 }
 
-/**
- * Parse test case string into array of arguments
- */
 function parseTestCase(testCase) {
   try {
-    // Remove whitespace and parse as JSON array
     const normalized = `[${testCase}]`;
     const parsed = JSON.parse(normalized);
     return parsed;
   } catch (error) {
-    // Fallback: split by comma and parse each
     return testCase.split(",").map((arg) => {
       try {
         return JSON.parse(arg.trim());
@@ -439,9 +390,6 @@ function parseTestCase(testCase) {
   }
 }
 
-/**
- * Convert JavaScript value to Python literal
- */
 function convertToPythonLiteral(value) {
   if (value === null || value === undefined) {
     return "None";
@@ -467,17 +415,11 @@ function convertToPythonLiteral(value) {
   return "None";
 }
 
-/**
- * Extract function name from code
- */
 function extractFunctionName(code) {
-  // Match: def functionName(
   const match = code.match(/def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
   if (match) {
     const name = match[1];
-    // Exclude dunder methods
     if (name.startsWith("__") && name.endsWith("__")) {
-      // Try to find another function
       const matches = code.matchAll(/def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g);
       for (const m of matches) {
         if (!m[1].startsWith("__") || !m[1].endsWith("__")) {

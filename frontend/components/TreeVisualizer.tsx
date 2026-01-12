@@ -9,10 +9,17 @@ const TreeVisualizer = () => {
   const currentStepIndex = useVisualizerStore(
     (state) => state.currentStepIndex
   );
+  const styleScreen = useVisualizerStore((state) => state.screenStyle);
   const currentStep = steps[currentStepIndex];
 
-  const { tree, highlightedNodes, visitedNodes, currentPath, traversalOrder } =
-    currentStep;
+  const {
+    tree,
+    highlightedNodes,
+    visitedNodes,
+    currentPath,
+    traversalOrder,
+    result,
+  } = currentStep;
 
   // Track recently highlighted node for animation
   const [recentlyHighlighted, setRecentlyHighlighted] = useState<string | null>(
@@ -248,18 +255,62 @@ const TreeVisualizer = () => {
       </div>
 
       {/* Tree Visualization - Scrollable */}
-      <div
-        className="flex-1 overflow-auto mb-4"
-        style={{
-          background: "#FFFFFF",
-          border: "2px solid #0078D7",
-          boxShadow:
-            "inset 1px 1px 2px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.2)",
-        }}
-      >
-        <div className="p-8 min-w-max flex justify-center">
-          {renderTree(tree)}
+      <div className={styleScreen === "regular" ? "" : "flex flex-row gap-2"}>
+        <div
+          className="flex-1 overflow-auto mb-10"
+          style={{
+            background: "#FFFFFF",
+            border: "2px solid #0078D7",
+            boxShadow:
+              "inset 1px 1px 2px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.2)",
+          }}
+        >
+          <div
+            className={
+              styleScreen === "full"
+                ? "p-32 min-w-max flex justify-center"
+                : "p-20 min-w-max flex justify-center"
+            }
+          >
+            {renderTree(tree)}
+          </div>
         </div>
+        {typeof result === "object" && (
+          <div
+            className="flex-1 overflow-auto mb-10"
+            style={{
+              background: "#FFFFFF",
+              border: "2px solid #0078D7",
+              boxShadow:
+                "inset 1px 1px 2px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.2)",
+            }}
+          >
+            <div className="mb-4 flex justify-center mt-5">
+              <div
+                className="px-4 py-2 rounded-sm max-w-2xl"
+                style={{
+                  background:
+                    "linear-gradient(to bottom, #FFF8DC 0%, #FFFACD 100%)",
+                  border: "1px solid #D4A017",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }}
+              >
+                <p className="text-sm text-black font-['Tahoma'] text-center ">
+                  Result
+                </p>
+              </div>
+            </div>
+            <div
+              className={
+                styleScreen === "full"
+                  ? "p-32 min-w-max flex justify-center"
+                  : "p-20 min-w-max flex justify-center"
+              }
+            >
+              {renderTree(result)}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Traversal Order - Windows XP Panel */}
