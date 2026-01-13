@@ -5,11 +5,15 @@ export interface ArrayVisualizationStep {
   type: string;
   description: string;
   array?: any[];
+  arrays?: any[][]; // ✅ Multi-array support
+  arrayNames?: string[]; // ✅ Array names
   highlightedIndices?: number[];
+  highlightedArrayIndices?: number[][]; // ✅ Per-array highlights
   highlightedVariables?: string[];
   variables?: Record<string, any>;
   result?: any;
   accessedValue?: any;
+  accessedArrayIndex?: number; // ✅ Which array is being accessed
   code?: any;
 }
 
@@ -19,10 +23,11 @@ export interface TreeVisualizationStep {
   description: string;
   variables?: Record<string, any>;
   tree?: Record<string, any>;
-  highlightedNodes: number[];
-  visitedNodes: number[];
-  currentPath: number[];
-  traversalOrder: number[];
+  highlightedNodes?: number[]; // ✅ Made optional
+  visitedNodes?: number[]; // ✅ Made optional
+  currentPath?: number[]; // ✅ Made optional
+  traversalOrder?: number[]; // ✅ Made optional
+  result?: any; // ✅ Added result
   code?: any;
 }
 

@@ -10,16 +10,16 @@ const TreeVisualizer = () => {
     (state) => state.currentStepIndex
   );
   const styleScreen = useVisualizerStore((state) => state.screenStyle);
-  const currentStep = steps[currentStepIndex];
+  const currentStep = steps[currentStepIndex] as TreeVisualizationStep;
 
   const {
     tree,
-    highlightedNodes,
-    visitedNodes,
-    currentPath,
-    traversalOrder,
+    highlightedNodes = [],
+    visitedNodes = [],
+    currentPath = [],
+    traversalOrder = [],
     result,
-  } = currentStep;
+  } = currentStep || {};
 
   // Track recently highlighted node for animation
   const [recentlyHighlighted, setRecentlyHighlighted] = useState<string | null>(

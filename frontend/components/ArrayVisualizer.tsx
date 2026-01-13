@@ -1,6 +1,7 @@
 "use client";
 
 import { useVisualizerStore } from "@/lib/store";
+import { ArrayVisualizationStep } from "@/lib/api";
 import { useEffect, useState } from "react";
 
 export default function ArrayVisualizer() {
@@ -8,7 +9,7 @@ export default function ArrayVisualizer() {
   const currentStepIndex = useVisualizerStore(
     (state) => state.currentStepIndex
   );
-  const currentStep = steps[currentStepIndex];
+  const currentStep = steps[currentStepIndex] as ArrayVisualizationStep;
 
   // Track recently accessed indices for highlight
   const [accessedIndices, setAccessedIndices] = useState<number[]>([]);
@@ -45,7 +46,7 @@ export default function ArrayVisualizer() {
     arrays,
     arrayNames,
     highlightedIndices = [],
-    highlightedArrayIndices = [], // ✅ Per-array highlights
+    highlightedArrayIndices = [],
     description,
     accessedValue,
     accessedArrayIndex,
