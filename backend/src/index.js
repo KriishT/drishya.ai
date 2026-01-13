@@ -15,7 +15,16 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://drishya-ai-henna.vercel.app/", // your frontend URL
+      /\.vercel\.app$/, // Allow all vercel domains
+    ],
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "10mb" }));
 
 function processTrace(trace, testCase, dataStructure = "array") {
