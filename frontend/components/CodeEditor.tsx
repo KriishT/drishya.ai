@@ -72,7 +72,7 @@ export default function CodeEditor() {
             }}
           >
             <option value="javascript">JavaScript</option>
-            <option value="python">Python3</option>
+            {/* <option value="python">Python3</option> */}
           </select>
         </div>
 
