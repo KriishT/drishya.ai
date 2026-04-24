@@ -1,3 +1,6 @@
+The issue is GitHub isn't rendering the markdown — the file is probably saved as a plain `.txt` or the heading `#` symbols are missing. Here's the exact raw text to paste into your `README.md` file. Make sure the file is named **exactly** `README.md` (capital README, lowercase .md):
+
+```markdown
 # Drishya.ai — LeetCode Algorithm Visualizer
 
 **Drishya** is an AI-powered algorithm visualizer that brings your LeetCode solutions to life. Paste your code, hit run, and watch every step of execution unfold — array accesses, loop iterations, tree traversals, and more — rendered as an interactive, step-by-step animation.
@@ -150,3 +153,59 @@ Open [http://localhost:3000](http://localhost:3000)
 ---
 
 ## Project structure
+
+```
+├── backend/
+│   └── src/
+│       ├── index.js                   # Express server + API routes
+│       ├── aiAnalyzer.js              # Claude-powered code analysis
+│       ├── instrumentor.js            # JS AST instrumentation (Babel)
+│       ├── executor.js                # Sandboxed execution (vm2)
+│       ├── pythonInstrumentor.js      # Python instrumentation
+│       ├── pythonExecutor.js          # Python execution
+│       ├── traceProcessorArray.js     # Array trace → steps
+│       ├── traceProcessorTree.js      # Tree trace → steps
+│       ├── traceProcessorLinkedList.js
+│       └── traceProcessorGraph.js
+│
+└── frontend/
+    ├── app/                           # Next.js app router
+    ├── components/
+    │   ├── CodeEditor.tsx             # Monaco editor + run button
+    │   ├── Visualizer.tsx             # Main visualizer panel
+    │   ├── ArrayVisualizer.tsx        # Array rendering
+    │   ├── TreeVisualizer.tsx         # Binary tree rendering
+    │   ├── PlaybackControl.tsx        # Step controls
+    │   └── VaraibleInspector.tsx      # Live variable tracking
+    └── lib/
+        ├── api.ts                     # Backend API client
+        └── store.ts                   # Zustand state management
+```
+
+---
+
+## Tech stack
+
+**Frontend** — Next.js 16, React 19, TypeScript, Tailwind CSS, Zustand, Monaco Editor
+
+**Backend** — Node.js, Express 5, Anthropic Claude API (`claude-3-5-haiku`), Babel (AST instrumentation), vm2 (sandboxed execution)
+
+---
+
+## Limitations
+
+- Only JavaScript is available in the live UI currently
+- Execution timeout is 5 seconds — very deep recursion may hit this
+- Graph visualization is a work in progress
+
+---
+
+## License
+
+MIT
+```
+
+The key things to check on GitHub:
+- File must be named `README.md` (not `readme.txt` or `README.MD`)
+- It needs to be in the **root** of the repository
+- The `#` on the very first line must have no spaces before it
